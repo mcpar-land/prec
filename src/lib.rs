@@ -4,15 +4,23 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 #[derive(Debug)]
-pub struct Climber<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re> {
-	rules: HashMap<Ru, (usize, Assoc)>,
+pub struct Climber<
+	Ru: Hash + Eq + Copy,
+	To: Into<Re> + Clone,
+	Re,
+	H: Fn(To, Ru, To) -> To,
+> {
+	pub rules: HashMap<Ru, (usize, Assoc)>,
+	pub handler: H,
 	p_rule_value: PhantomData<Ru>,
 	p_token: PhantomData<To>,
 	p_result: PhantomData<Re>,
 }
 
-impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Ru, To, Re> {
-	pub fn new(rules: Vec<Rule<Ru>>) -> Self {
+impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re, H: Fn(To, Ru, To) -> To>
+	Climber<Ru, To, Re, H>
+{
+	pub fn new(rules: Vec<Rule<Ru>>, handler: H) -> Self {
 		let rules = rules.into_iter().zip(1..).fold(
 			HashMap::new(),
 			|mut map, (val, prec)| {
@@ -34,17 +42,14 @@ impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Ru, To, Re> {
 		);
 		Self {
 			rules,
+			handler,
 			p_rule_value: PhantomData,
 			p_token: PhantomData,
 			p_result: PhantomData,
 		}
 	}
 
-	pub fn process<H: FnMut(To, Ru, To) -> To>(
-		&self,
-		expr: &Expression<Ru, To>,
-		mut handler: H,
-	) -> Re {
+	pub fn process(&self, expr: &Expression<Ru, To>) -> Re {
 		let mut primary = expr.first_token.clone().into();
 		let lhs = expr.first_token.clone();
 		let mut tokens = expr.pairs.iter().peekable();
@@ -54,18 +59,16 @@ impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Ru, To, Re> {
 				0,
 				&mut primary,
 				&mut tokens,
-				&mut handler,
 			)
 			.into()
 	}
 
-	fn process_rec<H: FnMut(To, Ru, To) -> To>(
+	fn process_rec(
 		&self,
 		mut lhs: To,
 		min_prec: usize,
 		primary: &mut Re,
 		tokens: &mut std::iter::Peekable<std::slice::Iter<(Ru, To)>>,
-		handler: &mut H,
 	) -> To {
 		while let Some((rule, token)) = tokens.peek() {
 			if let Some(&(prec, _)) = self.rules.get(rule) {
@@ -78,8 +81,7 @@ impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Ru, To, Re> {
 							if peek_prec > prec
 								|| peek_assoc == Assoc::Right && peek_prec == prec
 							{
-								rhs =
-									self.process_rec(rhs, peek_prec, primary, tokens, handler);
+								rhs = self.process_rec(rhs, peek_prec, primary, tokens);
 							} else {
 								break;
 							}
@@ -87,7 +89,7 @@ impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Ru, To, Re> {
 							break;
 						}
 					}
-					lhs = handler(lhs, *rule, rhs);
+					lhs = (self.handler)(lhs, *rule, rhs);
 				} else {
 					break;
 				}
@@ -167,20 +169,23 @@ mod test {
 
 	fn c(expression: &Expression<MathOperator, MathToken>) -> f32 {
 		use MathOperator::*;
-		let climber = Climber::new(vec![
-			Rule::new(Add, Assoc::Left) | Rule::new(Sub, Assoc::Left),
-			Rule::new(Mul, Assoc::Left) | Rule::new(Div, Assoc::Left),
-		]);
-		climber.process(&expression, |lhs, op, rhs| {
-			let lhs: f32 = lhs.into();
-			let rhs: f32 = rhs.into();
-			match op {
-				MathOperator::Add => MathToken::Num(lhs + rhs),
-				MathOperator::Sub => MathToken::Num(lhs - rhs),
-				MathOperator::Mul => MathToken::Num(lhs * rhs),
-				MathOperator::Div => MathToken::Num(lhs / rhs),
-			}
-		})
+		let climber = Climber::new(
+			vec![
+				Rule::new(Add, Assoc::Left) | Rule::new(Sub, Assoc::Left),
+				Rule::new(Mul, Assoc::Left) | Rule::new(Div, Assoc::Left),
+			],
+			|lhs: MathToken, op: MathOperator, rhs: MathToken| {
+				let lhs: f32 = lhs.into();
+				let rhs: f32 = rhs.into();
+				match op {
+					MathOperator::Add => MathToken::Num(lhs + rhs),
+					MathOperator::Sub => MathToken::Num(lhs - rhs),
+					MathOperator::Mul => MathToken::Num(lhs * rhs),
+					MathOperator::Div => MathToken::Num(lhs / rhs),
+				}
+			},
+		);
+		climber.process(&expression)
 	}
 
 	#[derive(Hash, Eq, PartialEq, Copy, Clone)]
