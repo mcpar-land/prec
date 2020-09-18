@@ -4,42 +4,36 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 #[derive(Debug)]
-pub struct Climber<
-	Ru: Hash + Eq + Copy,
-	To: Into<Re> + Clone,
-	Re,
-	H: Fn(To, Ru, To) -> To,
-> {
-	pub rules: HashMap<Ru, (usize, Assoc)>,
-	pub handler: H,
-	p_rule_value: PhantomData<Ru>,
+pub struct Climber<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> {
+	pub rules: HashMap<Op, (usize, Assoc)>,
+	pub handler: fn(To, Op, To) -> To,
+	p_rule_value: PhantomData<Op>,
 	p_token: PhantomData<To>,
 	p_result: PhantomData<Re>,
 }
 
-impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re, H: Fn(To, Ru, To) -> To>
-	Climber<Ru, To, Re, H>
-{
-	pub fn new(rules: Vec<Rule<Ru>>, handler: H) -> Self {
-		let rules = rules.into_iter().zip(1..).fold(
-			HashMap::new(),
-			|mut map, (val, prec)| {
-				let mut next = Some(val);
-				while let Some(val) = next.take() {
-					match val {
-						Rule {
-							val,
-							assoc,
-							next: val_next,
-						} => {
-							map.insert(val, (prec, assoc));
-							next = val_next.map(|val| *val);
+impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
+	pub fn new(rules: Vec<Rule<Op>>, handler: fn(To, Op, To) -> To) -> Self {
+		let rules =
+			rules
+				.into_iter()
+				.zip(1..)
+				.fold(HashMap::new(), |mut map, (op, prec)| {
+					let mut next = Some(op);
+					while let Some(op) = next.take() {
+						match op {
+							Rule {
+								op,
+								assoc,
+								next: val_next,
+							} => {
+								map.insert(op, (prec, assoc));
+								next = val_next.map(|val| *val);
+							}
 						}
 					}
-				}
-				map
-			},
-		);
+					map
+				});
 		Self {
 			rules,
 			handler,
@@ -49,7 +43,7 @@ impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re, H: Fn(To, Ru, To) -> To>
 		}
 	}
 
-	pub fn process(&self, expr: &Expression<Ru, To>) -> Re {
+	pub fn process(&self, expr: &Expression<Op, To>) -> Re {
 		let mut primary = expr.first_token.clone().into();
 		let lhs = expr.first_token.clone();
 		let mut tokens = expr.pairs.iter().peekable();
@@ -68,7 +62,7 @@ impl<Ru: Hash + Eq + Copy, To: Into<Re> + Clone, Re, H: Fn(To, Ru, To) -> To>
 		mut lhs: To,
 		min_prec: usize,
 		primary: &mut Re,
-		tokens: &mut std::iter::Peekable<std::slice::Iter<(Ru, To)>>,
+		tokens: &mut std::iter::Peekable<std::slice::Iter<(Op, To)>>,
 	) -> To {
 		while let Some((rule, token)) = tokens.peek() {
 			if let Some(&(prec, _)) = self.rules.get(rule) {
@@ -108,16 +102,16 @@ pub enum Assoc {
 }
 
 #[derive(Debug)]
-pub struct Rule<Ru> {
-	val: Ru,
+pub struct Rule<Op> {
+	op: Op,
 	assoc: Assoc,
-	next: Option<Box<Rule<Ru>>>,
+	next: Option<Box<Rule<Op>>>,
 }
 
-impl<Ru> Rule<Ru> {
-	pub fn new(val: Ru, assoc: Assoc) -> Self {
+impl<Op> Rule<Op> {
+	pub fn new(op: Op, assoc: Assoc) -> Self {
 		Self {
-			val,
+			op,
 			assoc,
 			next: None,
 		}
@@ -140,19 +134,19 @@ impl<Ru> std::ops::BitOr for Rule<Ru> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Expression<Ru: Copy, To: Clone> {
+pub struct Expression<Op: Copy, To: Clone> {
 	pub first_token: To,
-	pub pairs: Vec<(Ru, To)>,
+	pub pairs: Vec<(Op, To)>,
 }
 
-impl<Ru: Copy, To: Clone> Expression<Ru, To> {
-	pub fn new(first_token: To, pairs: Vec<(Ru, To)>) -> Self {
+impl<Op: Copy, To: Clone> Expression<Op, To> {
+	pub fn new(first_token: To, pairs: Vec<(Op, To)>) -> Self {
 		Self { first_token, pairs }
 	}
 }
 
-impl<Ru: Copy + fmt::Display, To: Clone + fmt::Display> fmt::Display
-	for Expression<Ru, To>
+impl<Op: Copy + fmt::Display, To: Clone + fmt::Display> fmt::Display
+	for Expression<Op, To>
 {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		let mut s = format!("{}", self.first_token);
