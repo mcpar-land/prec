@@ -33,9 +33,7 @@ use std::marker::PhantomData;
 /// [Clone]: https://doc.rust-lang.org/std/clone/trait.Clone.html
 #[derive(Debug)]
 pub struct Climber<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> {
-	/// A vec of [Rule](struct.Rule.html) s.
-	/// Rules with the same [precedence level][1] are separated by a `|` character.
-	///
+	/// A map of [Rule](struct.Rule.html) s.
 	///
 	/// [1]: https://en.wikipedia.org/wiki/Operator-precedence_parser#Precedence_climbing_method
 	pub rules: HashMap<Op, (usize, Assoc)>,
@@ -53,6 +51,7 @@ pub struct Climber<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> {
 
 impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 	/// Construtor for a new climber.
+	/// Rules with the same [precedence level][1] are separated by a `|` character.
 	/// ```ignore
 	/// fn handler(lhs: f64, op: Op, rhs: f64) {
 	/// 	match op {
@@ -138,13 +137,13 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 		primary: &mut Re,
 		tokens: &mut std::iter::Peekable<std::slice::Iter<(Op, To)>>,
 	) -> To {
-		while let Some((rule, token)) = tokens.peek() {
+		while let Some((rule, _)) = tokens.peek() {
 			if let Some(&(prec, _)) = self.rules.get(rule) {
 				if prec >= min_prec {
-					let (op, rhs_ref) = tokens.next().unwrap();
+					let (_, rhs_ref) = tokens.next().unwrap();
 					let mut rhs = rhs_ref.clone();
 
-					while let Some((peek_rule, peek_token)) = tokens.peek() {
+					while let Some((peek_rule, _)) = tokens.peek() {
 						if let Some(&(peek_prec, peek_assoc)) = self.rules.get(peek_rule) {
 							if peek_prec > prec
 								|| peek_assoc == Assoc::Right && peek_prec == prec
