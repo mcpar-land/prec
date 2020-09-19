@@ -1,7 +1,17 @@
-//! A crate to enable easy use of the [precedence climbing] algorithm.
+//! A crate to enable easy use of the [precedence climbing][1] algorithm.
+//! You plug your own handler function, token struct, and operator enum,
+//! and this crate provides the algorithm.
 //!
+//! Because the crate is sufficiently generic, It's possible to add
+//! very complex behavior without having to roll your own algorith.
+//! the [`int_math`][2] example demonstrates adding parenteses that respect ordering.
 //!
-//! [precedence climbing]: https://en.wikipedia.org/wiki/Operator-precedence_parser#Precedence_climbing_method
+//! The relationships between the required structures you provide are enforced
+//! by std library traits, which will let your structures play well with
+//! your existing code base.
+//!
+//! [1]: https://en.wikipedia.org/wiki/Operator-precedence_parser#Precedence_climbing_method
+//! [2]: https://github.com/mcpar-land/prec/blob/master/examples/int_math.rs
 
 use std::collections::HashMap;
 use std::fmt;
@@ -168,7 +178,7 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 	}
 }
 
-/// Used within a [rule](struct.Rule.html) to indicate the left/right association of an operator.
+/// Used within a [Rule](struct.Rule.html) to indicate the left/right association of an operator.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum Assoc {
 	Left,
@@ -208,6 +218,9 @@ impl<Ru> std::ops::BitOr for Rule<Ru> {
 	}
 }
 
+/// A faithful, always-valid representation of an expression.
+///
+/// It's impossible to throw an error due to the order of `token, operator, token` not being respected.
 #[derive(Debug, Clone)]
 pub struct Expression<Op: Copy, To: Clone> {
 	pub first_token: To,
@@ -215,6 +228,18 @@ pub struct Expression<Op: Copy, To: Clone> {
 }
 
 impl<Op: Copy, To: Clone> Expression<Op, To> {
+	/// ```ignore
+	/// // 5 * 6 + 3 / 2 ^ 4
+	/// let expression = Expression::new(
+	/// 	5.0f64,
+	/// 	vec![
+	/// 		(Op::Mul, 6.0),
+	/// 		(Op::Add, 3.0),
+	/// 		(Op::Div, 2.0),
+	/// 		(Op::Exp, 4.0)
+	/// 	]
+	/// );
+	/// ```
 	pub fn new(first_token: To, pairs: Vec<(Op, To)>) -> Self {
 		Self { first_token, pairs }
 	}
