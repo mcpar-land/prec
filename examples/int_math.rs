@@ -1,13 +1,26 @@
 use prec::{Assoc, Climber, Expression, Rule};
 use std::fmt;
 
+/*
+
+	This example uses the `prec` crate to perform integer operations.
+	It supports parentheses, addition, subtraction, division, multiplication, exponents, and an additional operator for rounded-up division.
+
+*/
+
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
 pub enum Operator {
+	// Addition
 	Add,
+	// Subtraction
 	Sub,
+	// Multiplication
 	Mul,
+	// Division, rounding down (standard behavior)
 	Div,
+	// Division, rounding up
 	DivUp,
+	// Exponent
 	Exp,
 }
 
