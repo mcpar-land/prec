@@ -1,3 +1,5 @@
+[![Crates.io](https://img.shields.io/crates/v/prec)](https://crates.io/crates/prec)
+
 A generic [operator-precedence parser][1] for Rust. You plug your own handler function, token struct, and operator enum, and this crate provides the algorithm.
 
 Simple example is available in [int_math.rs](examples/int_math.rs)
