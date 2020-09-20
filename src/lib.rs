@@ -257,6 +257,16 @@ impl<Op: Copy + fmt::Display, To: Clone + fmt::Display> fmt::Display
 	}
 }
 
+impl<Op: Copy + PartialEq, To: Clone + PartialEq> PartialEq
+	for Expression<Op, To>
+{
+	fn eq(&self, other: &Self) -> bool {
+		self.first_token == other.first_token && self.pairs == other.pairs
+	}
+}
+
+impl<Op: Copy + Eq, To: Clone + Eq> Eq for Expression<Op, To> {}
+
 #[cfg(test)]
 mod test {
 	use super::*;
