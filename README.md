@@ -12,7 +12,7 @@ cargo run --example int_math
 
 ```rust
 
-fn handler(lhs: f64, op: Op, rhs: f64) {
+fn handler(lhs: f64, op: Op, rhs: f64, _ctx: &()) {
 	match op {
 		Op::Add => lhs + rhs,
 		Op::Sub => lhs - rhs,
@@ -42,7 +42,7 @@ let expression = Expression::new(
 	]
 );
 
-assert_eq!(climber.process(&expression), 8.0f64);
+assert_eq!(climber.process(&expression, &()), 8.0f64);
 ```
 
 ---

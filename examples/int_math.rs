@@ -1,4 +1,4 @@
-use prec::{Assoc, Climber, Expression, Rule};
+use prec::{Assoc, Climber, Expression, Rule, Token as PrecToken};
 use std::fmt;
 
 /*
@@ -56,18 +56,18 @@ impl fmt::Display for Token {
 	}
 }
 
-impl Into<i64> for Token {
-	fn into(self) -> i64 {
+impl PrecToken<i64> for Token {
+	fn convert(self, _: &()) -> i64 {
 		match self {
-			Token::Paren(expr) => CLIMBER.process(expr.as_ref()),
+			Token::Paren(expr) => CLIMBER.process(expr.as_ref(), &()),
 			Token::Num(n) => n,
 		}
 	}
 }
 
-fn handler(lhs: Token, op: Operator, rhs: Token) -> Token {
-	let lhs: i64 = lhs.into();
-	let rhs: i64 = rhs.into();
+fn handler(lhs: Token, op: Operator, rhs: Token, _: &()) -> Token {
+	let lhs: i64 = lhs.convert(&());
+	let rhs: i64 = rhs.convert(&());
 	match op {
 		Operator::Add => Token::Num(lhs + rhs),
 		Operator::Sub => Token::Num(lhs - rhs),
@@ -99,14 +99,14 @@ fn main() {
 	// 2 + 2
 	// 4
 	let expression = Expression::new(Num(2i64), vec![(Add, Num(2))]);
-	println!("{} = {}", expression, CLIMBER.process(&expression));
+	println!("{} = {}", expression, CLIMBER.process(&expression, &()));
 
 	// 8 * 2 + 1
 	// 16 + 1
 	// 17
 	let expression =
 		Expression::new(Num(8i64), vec![(Mul, Num(2)), (Add, Num(1))]);
-	println!("{} = {}", expression, CLIMBER.process(&expression));
+	println!("{} = {}", expression, CLIMBER.process(&expression, &()));
 
 	// 8 * ( 2 + 1 )
 	// 8 * 3
@@ -118,29 +118,29 @@ fn main() {
 			Paren(Box::new(Expression::new(Num(2), vec![(Add, Num(1))]))),
 		)],
 	);
-	println!("{} = {}", expression, CLIMBER.process(&expression));
+	println!("{} = {}", expression, CLIMBER.process(&expression, &()));
 
 	// 9 / 2
 	// 4
 	let expression = Expression::new(Num(9), vec![(Div, Num(2))]);
-	println!("{} = {}", expression, CLIMBER.process(&expression));
+	println!("{} = {}", expression, CLIMBER.process(&expression, &()));
 
 	// 9 /u 2
 	// 5
 	let expression = Expression::new(Num(9), vec![(DivUp, Num(2))]);
-	println!("{} = {}", expression, CLIMBER.process(&expression));
+	println!("{} = {}", expression, CLIMBER.process(&expression, &()));
 
 	// 5 ^ 2
 	// 25
 	let expression = Expression::new(Num(5), vec![(Exp, Num(2))]);
-	println!("{} = {}", expression, CLIMBER.process(&expression));
+	println!("{} = {}", expression, CLIMBER.process(&expression, &()));
 
 	// 1 + 5 ^ 3 + 1
 	// 1 + 125 + 1
 	// 127
 	let expression =
 		Expression::new(Num(1), vec![(Add, Num(5)), (Exp, Num(3)), (Add, Num(1))]);
-	println!("{} = {}", expression, CLIMBER.process(&expression));
+	println!("{} = {}", expression, CLIMBER.process(&expression, &()));
 
 	// 5 + 3 ^ ( 1 + 1) - 2 * (8-1) / 3
 	// 5 + 3 ^ 2 - 2 * 7 / 3
@@ -164,5 +164,5 @@ fn main() {
 			(Div, Num(3)),
 		],
 	);
-	println!("{} = {}", expression, CLIMBER.process(&expression));
+	println!("{} = {}", expression, CLIMBER.process(&expression, &()));
 }

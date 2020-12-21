@@ -18,6 +18,10 @@ use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
+pub trait Token<Re, Ctx = ()> {
+	fn convert(self, ctx: &Ctx) -> Re;
+}
+
 /// A struct containing the order of operations rules and a pointer to a handler function.
 ///
 /// # Generics
@@ -35,14 +39,22 @@ use std::marker::PhantomData;
 /// ## `Re`
 /// A result value returned from the `compute` function.
 ///
+/// ## `Ctx`
+/// A context value made available across an entire expression while evaluating.
+/// Entirely optional, defaults to `()`
+///
 ///
 /// [Hash]: https://doc.rust-lang.org/std/hash/index.html
 /// [Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.ht
 /// [Copy]: https://doc.rust-lang.org/std/marker/trait.Copy.html
 /// [Into<Re>]: https://doc.rust-lang.org/std/convert/trait.Into.html
 /// [Clone]: https://doc.rust-lang.org/std/clone/trait.Clone.html
-#[derive(Debug)]
-pub struct Climber<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> {
+pub struct Climber<
+	Op: Hash + Eq + Copy,
+	To: Token<Re, Ctx> + Clone,
+	Re,
+	Ctx = (),
+> {
 	/// A map of [Rule](struct.Rule.html) s.
 	///
 	/// [1]: https://en.wikipedia.org/wiki/Operator-precedence_parser#Precedence_climbing_method
@@ -53,17 +65,20 @@ pub struct Climber<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> {
 	/// - Left-hand side token
 	/// - Operator
 	/// - Right-hand side token
-	pub handler: fn(To, Op, To) -> To,
+	pub handler: fn(To, Op, To, &Ctx) -> To,
 	p_rule_value: PhantomData<Op>,
 	p_token: PhantomData<To>,
 	p_result: PhantomData<Re>,
+	p_ctx: PhantomData<Ctx>,
 }
 
-impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
+impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
+	Climber<Op, To, Re, Ctx>
+{
 	/// Construtor for a new climber.
 	/// Rules with the same [precedence level][1] are separated by a `|` character.
 	/// ```ignore
-	/// fn handler(lhs: f64, op: Op, rhs: f64) {
+	/// fn handler(lhs: f64, op: Op, rhs: f64, _:&()) {
 	/// 	match op {
 	/// 		Op::Add => lhs + rhs,
 	/// 		Op::Sub => lhs - rhs,
@@ -82,7 +97,10 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 	///		handler
 	/// );
 	/// ```
-	pub fn new(rules: Vec<Rule<Op>>, handler: fn(To, Op, To) -> To) -> Self {
+	pub fn new(
+		rules: Vec<Rule<Op>>,
+		handler: fn(To, Op, To, &Ctx) -> To,
+	) -> Self {
 		let rules =
 			rules
 				.into_iter()
@@ -109,6 +127,7 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 			p_rule_value: PhantomData,
 			p_token: PhantomData,
 			p_result: PhantomData,
+			p_ctx: PhantomData,
 		}
 	}
 
@@ -124,10 +143,10 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 	/// 		(Op::Mul, 3.0f64)
 	/// 	]
 	/// );
-	/// assert_eq!(climber.process(&expression), 8.0f64);
+	/// assert_eq!(climber.process(&expression, &()), 8.0f64);
 	/// ```
-	pub fn process(&self, expr: &Expression<Op, To>) -> Re {
-		let mut primary = expr.first_token.clone().into();
+	pub fn process(&self, expr: &Expression<Op, To>, ctx: &Ctx) -> Re {
+		let mut primary = expr.first_token.clone().convert(ctx);
 		let lhs = expr.first_token.clone();
 		let mut tokens = expr.pairs.iter().peekable();
 		self
@@ -136,8 +155,9 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 				0,
 				&mut primary,
 				&mut tokens,
+				ctx,
 			)
-			.into()
+			.convert(ctx)
 	}
 
 	fn process_rec(
@@ -146,6 +166,7 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 		min_prec: usize,
 		primary: &mut Re,
 		tokens: &mut std::iter::Peekable<std::slice::Iter<(Op, To)>>,
+		ctx: &Ctx,
 	) -> To {
 		while let Some((rule, _)) = tokens.peek() {
 			if let Some(&(prec, _)) = self.rules.get(rule) {
@@ -158,7 +179,7 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 							if peek_prec > prec
 								|| peek_assoc == Assoc::Right && peek_prec == prec
 							{
-								rhs = self.process_rec(rhs, peek_prec, primary, tokens);
+								rhs = self.process_rec(rhs, peek_prec, primary, tokens, ctx);
 							} else {
 								break;
 							}
@@ -166,7 +187,7 @@ impl<Op: Hash + Eq + Copy, To: Into<Re> + Clone, Re> Climber<Op, To, Re> {
 							break;
 						}
 					}
-					lhs = (self.handler)(lhs, *rule, rhs);
+					lhs = (self.handler)(lhs, *rule, rhs, ctx);
 				} else {
 					break;
 				}
@@ -271,16 +292,16 @@ impl<Op: Copy + Eq, To: Clone + Eq> Eq for Expression<Op, To> {}
 mod test {
 	use super::*;
 
-	fn c(expression: &Expression<MathOperator, MathToken>) -> f32 {
+	fn c(expression: &Expression<MathOperator, MathToken>, ctx: &f32) -> f32 {
 		use MathOperator::*;
 		let climber = Climber::new(
 			vec![
 				Rule::new(Add, Assoc::Left) | Rule::new(Sub, Assoc::Left),
 				Rule::new(Mul, Assoc::Left) | Rule::new(Div, Assoc::Left),
 			],
-			|lhs: MathToken, op: MathOperator, rhs: MathToken| {
-				let lhs: f32 = lhs.into();
-				let rhs: f32 = rhs.into();
+			|lhs: MathToken, op: MathOperator, rhs: MathToken, ctx: &f32| {
+				let lhs: f32 = lhs.convert(ctx);
+				let rhs: f32 = rhs.convert(ctx);
 				match op {
 					MathOperator::Add => MathToken::Num(lhs + rhs),
 					MathOperator::Sub => MathToken::Num(lhs - rhs),
@@ -289,7 +310,7 @@ mod test {
 				}
 			},
 		);
-		climber.process(&expression)
+		climber.process(&expression, ctx)
 	}
 
 	#[derive(Hash, Eq, PartialEq, Copy, Clone)]
@@ -304,34 +325,42 @@ mod test {
 	pub enum MathToken {
 		Paren(Box<Expression<MathOperator, MathToken>>),
 		Num(f32),
+		X,
 	}
 
-	impl Into<f32> for MathToken {
-		fn into(self) -> f32 {
+	impl Token<f32, f32> for MathToken {
+		fn convert(self, ctx: &f32) -> f32 {
 			match self {
-				MathToken::Paren(expr) => c(expr.as_ref()),
+				MathToken::Paren(expr) => c(expr.as_ref(), ctx),
 				MathToken::Num(n) => n,
+				MathToken::X => *ctx,
 			}
 		}
 	}
 
 	#[test]
 	fn process() {
-		let res = c(&Expression::new(
-			MathToken::Num(7.0),
-			vec![(MathOperator::Add, MathToken::Num(3.0))],
-		));
+		let res = c(
+			&Expression::new(
+				MathToken::Num(7.0),
+				vec![(MathOperator::Add, MathToken::X)],
+			),
+			&8.0,
+		);
 
-		assert_eq!(res, 10.0);
+		assert_eq!(res, 15.0);
 	}
 	#[test]
 	fn proces_complex() {
 		use MathOperator::*;
 		use MathToken::*;
-		let res = c(&Expression::new(
-			Num(10.0),
-			vec![(Add, Num(5.0)), (Mul, Num(3.0)), (Add, Num(1.0))],
-		));
+		let res = c(
+			&Expression::new(
+				Num(10.0),
+				vec![(Add, Num(5.0)), (Mul, Num(3.0)), (Add, Num(1.0))],
+			),
+			&8.0,
+		);
 		println!("{}", res);
 	}
 }
