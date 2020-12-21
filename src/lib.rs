@@ -18,8 +18,8 @@ use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-pub trait Token<Re, Ctx = ()> {
-	fn convert(self, ctx: &Ctx) -> Re;
+pub trait Token<Re, Err, Ctx = ()> {
+	fn convert(self, ctx: &Ctx) -> Result<Re, Err>;
 }
 
 /// A struct containing the order of operations rules and a pointer to a handler function.
@@ -39,6 +39,9 @@ pub trait Token<Re, Ctx = ()> {
 /// ## `Re`
 /// A result value returned from the `compute` function.
 ///
+/// ## `Err`
+/// The error type returned in results.
+///
 /// ## `Ctx`
 /// A context value made available across an entire expression while evaluating.
 /// Entirely optional, defaults to `()`
@@ -47,12 +50,12 @@ pub trait Token<Re, Ctx = ()> {
 /// [Hash]: https://doc.rust-lang.org/std/hash/index.html
 /// [Eq]: https://doc.rust-lang.org/std/cmp/trait.Eq.ht
 /// [Copy]: https://doc.rust-lang.org/std/marker/trait.Copy.html
-/// [Into<Re>]: https://doc.rust-lang.org/std/convert/trait.Into.html
 /// [Clone]: https://doc.rust-lang.org/std/clone/trait.Clone.html
 pub struct Climber<
 	Op: Hash + Eq + Copy,
-	To: Token<Re, Ctx> + Clone,
+	To: Token<Re, Err, Ctx> + Clone,
 	Re,
+	Err,
 	Ctx = (),
 > {
 	/// A map of [Rule](struct.Rule.html) s.
@@ -65,27 +68,27 @@ pub struct Climber<
 	/// - Left-hand side token
 	/// - Operator
 	/// - Right-hand side token
-	pub handler: fn(To, Op, To, &Ctx) -> To,
+	pub handler: fn(To, Op, To, &Ctx) -> Result<To, Err>,
 	p_rule_value: PhantomData<Op>,
 	p_token: PhantomData<To>,
 	p_result: PhantomData<Re>,
 	p_ctx: PhantomData<Ctx>,
 }
 
-impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
-	Climber<Op, To, Re, Ctx>
+impl<Op: Hash + Eq + Copy, To: Token<Re, Err, Ctx> + Clone, Re, Err, Ctx>
+	Climber<Op, To, Re, Err, Ctx>
 {
 	/// Construtor for a new climber.
 	/// Rules with the same [precedence level][1] are separated by a `|` character.
 	/// ```ignore
-	/// fn handler(lhs: f64, op: Op, rhs: f64, _:&()) {
-	/// 	match op {
+	/// fn handler(lhs: f64, op: Op, rhs: f64, _:&()) -> Result<f64, ()> {
+	/// 	Ok(match op {
 	/// 		Op::Add => lhs + rhs,
 	/// 		Op::Sub => lhs - rhs,
 	/// 		Op::Mul => lhs * rhs,
 	/// 		Op::Div => lhs / rhs,
 	///			Op::Exp => lhs.powf(rhs)
-	/// 	}
+	/// 	})
 	/// }
 	///
 	/// let climber = Climber::new(
@@ -99,7 +102,7 @@ impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
 	/// ```
 	pub fn new(
 		rules: Vec<Rule<Op>>,
-		handler: fn(To, Op, To, &Ctx) -> To,
+		handler: fn(To, Op, To, &Ctx) -> Result<To, Err>,
 	) -> Self {
 		let rules =
 			rules
@@ -143,10 +146,14 @@ impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
 	/// 		(Op::Mul, 3.0f64)
 	/// 	]
 	/// );
-	/// assert_eq!(climber.process(&expression, &()), 8.0f64);
+	/// assert_eq!(climber.process(&expression, &()).unwrap(), 8.0f64);
 	/// ```
-	pub fn process(&self, expr: &Expression<Op, To>, ctx: &Ctx) -> Re {
-		let mut primary = expr.first_token.clone().convert(ctx);
+	pub fn process(
+		&self,
+		expr: &Expression<Op, To>,
+		ctx: &Ctx,
+	) -> Result<Re, Err> {
+		let mut primary = expr.first_token.clone().convert(ctx)?;
 		let lhs = expr.first_token.clone();
 		let mut tokens = expr.pairs.iter().peekable();
 		self
@@ -156,7 +163,7 @@ impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
 				&mut primary,
 				&mut tokens,
 				ctx,
-			)
+			)?
 			.convert(ctx)
 	}
 
@@ -167,7 +174,7 @@ impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
 		primary: &mut Re,
 		tokens: &mut std::iter::Peekable<std::slice::Iter<(Op, To)>>,
 		ctx: &Ctx,
-	) -> To {
+	) -> Result<To, Err> {
 		while let Some((rule, _)) = tokens.peek() {
 			if let Some(&(prec, _)) = self.rules.get(rule) {
 				if prec >= min_prec {
@@ -179,7 +186,7 @@ impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
 							if peek_prec > prec
 								|| peek_assoc == Assoc::Right && peek_prec == prec
 							{
-								rhs = self.process_rec(rhs, peek_prec, primary, tokens, ctx);
+								rhs = self.process_rec(rhs, peek_prec, primary, tokens, ctx)?;
 							} else {
 								break;
 							}
@@ -187,7 +194,7 @@ impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
 							break;
 						}
 					}
-					lhs = (self.handler)(lhs, *rule, rhs, ctx);
+					lhs = (self.handler)(lhs, *rule, rhs, ctx)?;
 				} else {
 					break;
 				}
@@ -195,7 +202,7 @@ impl<Op: Hash + Eq + Copy, To: Token<Re, Ctx> + Clone, Re, Ctx>
 				break;
 			}
 		}
-		lhs
+		Ok(lhs)
 	}
 }
 
@@ -292,7 +299,10 @@ impl<Op: Copy + Eq, To: Clone + Eq> Eq for Expression<Op, To> {}
 mod test {
 	use super::*;
 
-	fn c(expression: &Expression<MathOperator, MathToken>, ctx: &f32) -> f32 {
+	fn c(
+		expression: &Expression<MathOperator, MathToken>,
+		ctx: &f32,
+	) -> Result<f32, &'static str> {
 		use MathOperator::*;
 		let climber = Climber::new(
 			vec![
@@ -300,14 +310,14 @@ mod test {
 				Rule::new(Mul, Assoc::Left) | Rule::new(Div, Assoc::Left),
 			],
 			|lhs: MathToken, op: MathOperator, rhs: MathToken, ctx: &f32| {
-				let lhs: f32 = lhs.convert(ctx);
-				let rhs: f32 = rhs.convert(ctx);
-				match op {
+				let lhs: f32 = lhs.convert(ctx)?;
+				let rhs: f32 = rhs.convert(ctx)?;
+				Ok(match op {
 					MathOperator::Add => MathToken::Num(lhs + rhs),
 					MathOperator::Sub => MathToken::Num(lhs - rhs),
 					MathOperator::Mul => MathToken::Num(lhs * rhs),
 					MathOperator::Div => MathToken::Num(lhs / rhs),
-				}
+				})
 			},
 		);
 		climber.process(&expression, ctx)
@@ -328,13 +338,13 @@ mod test {
 		X,
 	}
 
-	impl Token<f32, f32> for MathToken {
-		fn convert(self, ctx: &f32) -> f32 {
-			match self {
-				MathToken::Paren(expr) => c(expr.as_ref(), ctx),
+	impl Token<f32, &'static str, f32> for MathToken {
+		fn convert(self, ctx: &f32) -> Result<f32, &'static str> {
+			Ok(match self {
+				MathToken::Paren(expr) => c(expr.as_ref(), ctx)?,
 				MathToken::Num(n) => n,
 				MathToken::X => *ctx,
-			}
+			})
 		}
 	}
 
@@ -346,7 +356,8 @@ mod test {
 				vec![(MathOperator::Add, MathToken::X)],
 			),
 			&8.0,
-		);
+		)
+		.unwrap();
 
 		assert_eq!(res, 15.0);
 	}
@@ -360,7 +371,8 @@ mod test {
 				vec![(Add, Num(5.0)), (Mul, Num(3.0)), (Add, Num(1.0))],
 			),
 			&8.0,
-		);
+		)
+		.unwrap();
 		println!("{}", res);
 	}
 }
